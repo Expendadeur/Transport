@@ -41,6 +41,12 @@ $user = get_user();
                 <span>Réservations</span>
             </a>
         </li>
+        <li class="menu-item">
+            <a href="/Gestion_agence_transport/modules/departs/index.php" class="menu-link <?php echo strpos($_SERVER['PHP_SELF'], '/departs/') !== false ? 'active' : ''; ?>">
+                <i class="fas fa-bus-alt"></i>
+                <span>Départs</span>
+            </a>
+        </li>
 
         <li class="menu-item">
             <a href="/Gestion_agence_transport/modules/trajets/index.php" class="menu-link <?php echo strpos($_SERVER['PHP_SELF'], '/trajets/') !== false ? 'active' : ''; ?>">

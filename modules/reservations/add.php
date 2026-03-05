@@ -10,31 +10,54 @@ check_login();
 $page_title = "Faire une Réservation";
 $error = '';
 
-// Fetch Passengers, Trajets, and Payments
+// Fetch Passengers, Départs (All open ones for visibility), and Payments
 $passagers = $pdo->query("SELECT * FROM passager p LEFT JOIN adresse a ON p.id_Adres = a.idAdr ORDER BY p.nomP ASC")->fetchAll();
-$trajets = $pdo->query("SELECT * FROM trajet ORDER BY ville_depart ASC")->fetchAll();
+$departs = $pdo->query("
+    SELECT d.idDep, d.date_depart, d.heure_depart, d.places_disponibles, t.ville_depart, t.ville_arrive, t.prix, t.id_Traj
+    FROM depart d
+    JOIN trajet t ON d.id_Trajet = t.id_Traj
+    WHERE d.statut = 'ouvert' AND d.date_depart >= CURDATE()
+    ORDER BY d.date_depart ASC, d.heure_depart ASC
+")->fetchAll();
 $payments = $pdo->query("SELECT * FROM payment WHERE statut = 'validé' ORDER BY idPay DESC LIMIT 50")->fetchAll();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $id_Passager = $_POST['id_Passager'];
-    $id_Trajet = $_POST['id_Trajet'];
-    $date_reservation = $_POST['date_reservation'] ?? date('Y-m-d');
+    $id_Depart = $_POST['id_Depart'];
     $nr_place = $_POST['nr_place'] ?? 1;
     $id_Payment = $_POST['id_Payment'] ?: null;
 
-    if ($id_Passager && $id_Trajet) {
+    if ($id_Passager && $id_Depart) {
         try {
-            $stmt = $pdo->prepare("INSERT INTO reservation (date_reservation, nr_place, id_Passager, id_Trajet, id_Payment) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$date_reservation, $nr_place, $id_Passager, $id_Trajet, $id_Payment]);
-            
-            $_SESSION['success'] = "Réservation enregistrée avec succès.";
-            header("Location: index.php");
-            exit();
-        } catch (PDOException $e) {
+            $pdo->beginTransaction();
+
+            // Get Depart Info
+            $d_stmt = $pdo->prepare("SELECT id_Trajet, date_depart, places_disponibles FROM depart WHERE idDep = ?");
+            $d_stmt->execute([$id_Depart]);
+            $trip = $d_stmt->fetch();
+
+            if ($trip && $trip['places_disponibles'] >= $nr_place) {
+                // 1. Insert Reservation
+                $stmt = $pdo->prepare("INSERT INTO reservation (date_reservation, nr_place, id_Passager, id_Trajet, id_Depart, id_Payment) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$trip['date_depart'], $nr_place, $id_Passager, $trip['id_Trajet'], $id_Depart, $id_Payment]);
+                
+                // 2. Decrement Seats
+                $upd = $pdo->prepare("UPDATE depart SET places_disponibles = places_disponibles - ? WHERE idDep = ?");
+                $upd->execute([$nr_place, $id_Depart]);
+
+                $pdo->commit();
+                $_SESSION['success'] = "Réservation enregistrée avec succès.";
+                header("Location: index.php");
+                exit();
+            } else {
+                throw new Exception("Places insuffisantes pour ce voyage.");
+            }
+        } catch (Exception $e) {
+            $pdo->rollBack();
             $error = "Erreur: " . $e->getMessage();
         }
     } else {
-        $error = "Passager et Trajet sont obligatoires.";
+        $error = "Passager et Voyage (Départ) sont obligatoires.";
     }
 }
 
@@ -70,24 +93,50 @@ include '../../includes/sidebar.php';
             </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-            <div class="form-group">
-                <label class="form-label">Trajet <span style="color: #ef4444;">*</span></label>
-                <select name="id_Trajet" id="id_Trajet" class="form-control" required onchange="updatePrice()">
-                    <option value="" data-price="0">-- Choisir l'itinéraire --</option>
-                    <?php foreach ($trajets as $t): ?>
-                        <option value="<?php echo $t['id_Traj']; ?>" data-price="<?php echo $t['prix']; ?>">
-                            <?php echo htmlspecialchars($t['ville_depart'] . ' - ' . $t['ville_arrive'] . ' (' . number_format($t['prix'], 0) . ' FBU)'); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-                <div id="price-display" style="margin-top: 0.5rem; font-weight: 700; color: var(--success-color); font-size: 1.1rem; display: none;">
-                    Prix du trajet: <span id="trajet-price">0</span> FBU
+        <div class="form-group">
+            <label class="form-label">Sélectionner un Voyage (Départ disponible) <span style="color: #ef4444;">*</span></label>
+            <select name="id_Depart" id="id_Depart" class="form-control" required onchange="updateTripDetails()">
+                <option value="" data-price="0" data-seats="0" data-trajet="0">-- Choisir un voyage programmé --</option>
+                
+                <?php 
+                $available = array_filter($departs, function($d) { return $d['places_disponibles'] > 0; });
+                $sold_out = array_filter($departs, function($d) { return $d['places_disponibles'] <= 0; });
+                ?>
+
+                <?php if(!empty($available)): ?>
+                    <optgroup label="Voyages Disponibles">
+                        <?php foreach ($available as $d): ?>
+                            <option value="<?php echo $d['idDep']; ?>" data-price="<?php echo $d['prix']; ?>" data-seats="<?php echo $d['places_disponibles']; ?>" data-trajet="<?php echo $d['id_Traj']; ?>">
+                                #DEP-<?php echo $d['idDep']; ?> : <?php echo htmlspecialchars($d['ville_depart'] . ' → ' . $d['ville_arrive']); ?> 
+                                (<?php echo date('d/m/Y', strtotime($d['date_depart'])); ?> à <?php echo substr($d['heure_depart'], 0, 5); ?>) 
+                                - <?php echo $d['places_disponibles']; ?> places
+                            </option>
+                        <?php endforeach; ?>
+                    </optgroup>
+                <?php endif; ?>
+
+                <?php if(!empty($sold_out)): ?>
+                    <optgroup label="Voyages COMPLET (Infos départs futurs)">
+                        <?php foreach ($sold_out as $d): ?>
+                            <option value="<?php echo $d['idDep']; ?>" data-price="<?php echo $d['prix']; ?>" data-seats="0" data-trajet="<?php echo $d['id_Traj']; ?>" style="color: #ef4444;">
+                                [COMPLET] #DEP-<?php echo $d['idDep']; ?> : <?php echo htmlspecialchars($d['ville_depart'] . ' → ' . $d['ville_arrive']); ?> 
+                                (<?php echo date('d/m/Y', strtotime($d['date_depart'])); ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </optgroup>
+                <?php endif; ?>
+            </select>
+            <div id="trip-details" style="margin-top: 0.5rem; display: none;">
+                <span style="font-weight: 700; color: var(--success-color); font-size: 1.1rem;">
+                    Prix: <span id="trajet-price">0</span> FBU
+                </span>
+                <span id="seat-warning" style="margin-left: 1rem; color: #ef4444; font-weight: 600; font-size: 0.85rem; display: none;">
+                    <i class="fas fa-exclamation-triangle"></i> Attention: Places limitées!
+                </span>
+                <div id="full-trip-alert" style="display: none; color: #ef4444; margin-top: 0.5rem; font-weight: 700;">
+                    <i class="fas fa-ban"></i> Ce voyage est COMPLET. Veuillez choisir un autre départ.
+                    <div id="staff-next-trip" style="color: #0369a1; font-size: 0.9rem; margin-top: 0.3rem;"></div>
                 </div>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Date du voyage</label>
-                <input type="date" name="date_reservation" class="form-control" value="<?php echo date('Y-m-d'); ?>" required>
             </div>
         </div>
 
@@ -120,18 +169,38 @@ include '../../includes/sidebar.php';
 </div>
 
 <script>
-function updatePrice() {
-    const trajetSelect = document.getElementById('id_Trajet');
+function updateTripDetails() {
+    const departSelect = document.getElementById('id_Depart');
     const paymentSelect = document.getElementById('id_Payment');
-    const priceDisplay = document.getElementById('price-display');
+    const tripDetails = document.getElementById('trip-details');
     const priceSpan = document.getElementById('trajet-price');
+    const seatWarning = document.getElementById('seat-warning');
+    const fullAlert = document.getElementById('full-trip-alert');
+    const submitBtn = document.querySelector('button[type="submit"]');
     
-    const selectedOption = trajetSelect.options[trajetSelect.selectedIndex];
+    const selectedOption = departSelect.options[departSelect.selectedIndex];
     const price = selectedOption.getAttribute('data-price');
+    const seats = parseInt(selectedOption.getAttribute('data-seats') || 0);
+    const trajetId = selectedOption.getAttribute('data-trajet');
+    const departId = departSelect.value;
+    
+    // Reset
+    fullAlert.style.display = 'none';
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
     
     if (price && price > 0) {
         priceSpan.textContent = new Intl.NumberFormat().format(price);
-        priceDisplay.style.display = 'block';
+        tripDetails.style.display = 'block';
+        
+        if (seats <= 0 && departId !== "") {
+            fullAlert.style.display = 'block';
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.5';
+            fetchStaffNext(trajetId, departId);
+        } else {
+            seatWarning.style.display = (seats < 5) ? 'inline' : 'none';
+        }
         
         // Filter payments
         Array.from(paymentSelect.options).forEach(option => {
@@ -142,18 +211,24 @@ function updatePrice() {
                 option.style.display = 'none';
             }
         });
-        
-        // Reset payment if current selection is hidden
-        if (paymentSelect.options[paymentSelect.selectedIndex].style.display === 'none') {
-            paymentSelect.value = "";
-        }
     } else {
-        priceDisplay.style.display = 'none';
-        // Show all payments if no trajet selected
-        Array.from(paymentSelect.options).forEach(option => {
-            option.style.display = 'block';
-        });
+        tripDetails.style.display = 'none';
     }
+}
+
+function fetchStaffNext(trajetId, currentId) {
+    const nextDiv = document.getElementById('staff-next-trip');
+    nextDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Recherche...';
+    
+    fetch('../../api/next_trip.php?trajet=' + trajetId + '&exclude=' + currentId)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                nextDiv.innerHTML = 'Option alternative: <strong>' + data.trip.date + ' à ' + data.trip.heure + '</strong> (' + data.trip.seats + ' places)';
+            } else {
+                nextDiv.innerHTML = 'Aucun autre départ disponible pour ce trajet.';
+            }
+        });
 }
 </script>
 
