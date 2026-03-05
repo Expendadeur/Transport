@@ -9,8 +9,12 @@ check_login();
 
 $page_title = "Gestion des Paiements";
 
-// Fetch Payments
-$query = "SELECT * FROM payment ORDER BY idPay DESC";
+// Fetch Payments with linked Reservations
+$query = "SELECT pay.*, r.idRes as reservation_id, p.nomP, p.prenomP 
+          FROM payment pay 
+          LEFT JOIN reservation r ON r.id_Payment = pay.idPay 
+          LEFT JOIN passager p ON r.id_Passager = p.idP 
+          ORDER BY pay.idPay DESC";
 $stmt = $pdo->prepare($query);
 $stmt->execute();
 $paiements = $stmt->fetchAll();
@@ -35,6 +39,7 @@ include '../../includes/sidebar.php';
             <thead>
                 <tr>
                     <th>ID</th>
+                    <th>Détails</th>
                     <th>Montant</th>
                     <th>Date</th>
                     <th>Mode de Paiement</th>
@@ -47,6 +52,16 @@ include '../../includes/sidebar.php';
                     <?php foreach ($paiements as $p): ?>
                         <tr>
                             <td>#PAY-<?php echo $p['idPay']; ?></td>
+                            <td>
+                                <?php if ($p['reservation_id']): ?>
+                                    <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">
+                                        <i class="fas fa-ticket-alt" style="color: var(--primary-color);"></i> #RES-<?php echo $p['reservation_id']; ?>
+                                    </div>
+                                    <div style="font-size: 0.75rem; color: #64748b;"><?php echo htmlspecialchars($p['nomP'] . ' ' . $p['prenomP']); ?></div>
+                                <?php else: ?>
+                                    <span style="font-size: 0.75rem; color: #94a3b8; font-style: italic;">Paiement libre</span>
+                                <?php endif; ?>
+                            </td>
                             <td style="font-weight: 700; color: #059669;">
                                 <?php echo number_format($p['montant'], 0, ',', ' '); ?> FBU
                             </td>

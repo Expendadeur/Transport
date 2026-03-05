@@ -73,12 +73,17 @@ include '../../includes/sidebar.php';
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
             <div class="form-group">
                 <label class="form-label">Trajet <span style="color: #ef4444;">*</span></label>
-                <select name="id_Trajet" class="form-control" required>
-                    <option value="">-- Choisir l'itinéraire --</option>
+                <select name="id_Trajet" id="id_Trajet" class="form-control" required onchange="updatePrice()">
+                    <option value="" data-price="0">-- Choisir l'itinéraire --</option>
                     <?php foreach ($trajets as $t): ?>
-                        <option value="<?php echo $t['id_Traj']; ?>"><?php echo htmlspecialchars($t['ville_depart'] . ' - ' . $t['ville_arrive'] . ' (' . number_format($t['prix'], 0) . ' FBU)'); ?></option>
+                        <option value="<?php echo $t['id_Traj']; ?>" data-price="<?php echo $t['prix']; ?>">
+                            <?php echo htmlspecialchars($t['ville_depart'] . ' - ' . $t['ville_arrive'] . ' (' . number_format($t['prix'], 0) . ' FBU)'); ?>
+                        </option>
                     <?php endforeach; ?>
                 </select>
+                <div id="price-display" style="margin-top: 0.5rem; font-weight: 700; color: var(--success-color); font-size: 1.1rem; display: none;">
+                    Prix du trajet: <span id="trajet-price">0</span> FBU
+                </div>
             </div>
             <div class="form-group">
                 <label class="form-label">Date du voyage</label>
@@ -92,11 +97,13 @@ include '../../includes/sidebar.php';
                 <input type="number" name="nr_place" class="form-control" value="1" min="1" max="60">
             </div>
             <div class="form-group">
-                <label class="form-label">Référence Paiement (Validé)</label>
-                <select name="id_Payment" class="form-control">
-                    <option value="">-- Payer plus tard --</option>
+                <label class="form-label">Référence Paiement (Validé matching prix)</label>
+                <select name="id_Payment" id="id_Payment" class="form-control">
+                    <option value="" data-amount="0">-- Payer plus tard --</option>
                     <?php foreach ($payments as $pay): ?>
-                        <option value="<?php echo $pay['idPay']; ?>">#PAY-<?php echo $pay['idPay']; ?> (<?php echo number_format($pay['montant'],0); ?> FBU)</option>
+                        <option value="<?php echo $pay['idPay']; ?>" data-amount="<?php echo $pay['montant']; ?>">
+                            #PAY-<?php echo $pay['idPay']; ?> (<?php echo number_format($pay['montant'], 0); ?> FBU)
+                        </option>
                     <?php endforeach; ?>
                 </select>
                 <div style="margin-top: 0.5rem;">
@@ -111,5 +118,43 @@ include '../../includes/sidebar.php';
         </div>
     </form>
 </div>
+
+<script>
+function updatePrice() {
+    const trajetSelect = document.getElementById('id_Trajet');
+    const paymentSelect = document.getElementById('id_Payment');
+    const priceDisplay = document.getElementById('price-display');
+    const priceSpan = document.getElementById('trajet-price');
+    
+    const selectedOption = trajetSelect.options[trajetSelect.selectedIndex];
+    const price = selectedOption.getAttribute('data-price');
+    
+    if (price && price > 0) {
+        priceSpan.textContent = new Intl.NumberFormat().format(price);
+        priceDisplay.style.display = 'block';
+        
+        // Filter payments
+        Array.from(paymentSelect.options).forEach(option => {
+            const amount = option.getAttribute('data-amount');
+            if (amount === "0" || amount === price) {
+                option.style.display = 'block';
+            } else {
+                option.style.display = 'none';
+            }
+        });
+        
+        // Reset payment if current selection is hidden
+        if (paymentSelect.options[paymentSelect.selectedIndex].style.display === 'none') {
+            paymentSelect.value = "";
+        }
+    } else {
+        priceDisplay.style.display = 'none';
+        // Show all payments if no trajet selected
+        Array.from(paymentSelect.options).forEach(option => {
+            option.style.display = 'block';
+        });
+    }
+}
+</script>
 
 <?php include '../../includes/footer.php'; ?>

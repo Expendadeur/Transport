@@ -73,13 +73,16 @@ include '../../includes/sidebar.php';
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
             <div class="form-group">
                 <label class="form-label">Trajet</label>
-                <select name="id_Trajet" class="form-control" required>
+                <select name="id_Trajet" id="id_Trajet" class="form-control" required onchange="updatePrice()">
                     <?php foreach ($trajets as $t): ?>
-                        <option value="<?php echo $t['id_Traj']; ?>" <?php echo $r['id_Trajet'] == $t['id_Traj'] ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($t['ville_depart'] . ' - ' . $t['ville_arrive']); ?>
+                        <option value="<?php echo $t['id_Traj']; ?>" data-price="<?php echo $t['prix']; ?>" <?php echo $r['id_Trajet'] == $t['id_Traj'] ? 'selected' : ''; ?>>
+                            <?php echo htmlspecialchars($t['ville_depart'] . ' - ' . $t['ville_arrive'] . ' (' . number_format($t['prix'], 0) . ' FBU)'); ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
+                <div id="price-display" style="margin-top: 0.5rem; font-weight: 700; color: var(--success-color); font-size: 1.1rem;">
+                    Prix du trajet: <span id="trajet-price">0</span> FBU
+                </div>
             </div>
             <div class="form-group">
                 <label class="form-label">Date du voyage</label>
@@ -93,11 +96,11 @@ include '../../includes/sidebar.php';
                 <input type="number" name="nr_place" class="form-control" value="<?php echo $r['nr_place']; ?>">
             </div>
             <div class="form-group">
-                <label class="form-label">Paiement</label>
-                <select name="id_Payment" class="form-control">
-                    <option value="">-- Non payé --</option>
+                <label class="form-label">Paiement (Filtré par prix)</label>
+                <select name="id_Payment" id="id_Payment" class="form-control">
+                    <option value="" data-amount="0">-- Non payé --</option>
                     <?php foreach ($payments as $pay): ?>
-                        <option value="<?php echo $pay['idPay']; ?>" <?php echo $r['id_Payment'] == $pay['idPay'] ? 'selected' : ''; ?>>
+                        <option value="<?php echo $pay['idPay']; ?>" data-amount="<?php echo $pay['montant']; ?>" <?php echo $r['id_Payment'] == $pay['idPay'] ? 'selected' : ''; ?>>
                             #PAY-<?php echo $pay['idPay']; ?> (<?php echo number_format($pay['montant'], 0); ?> FBU)
                         </option>
                     <?php endforeach; ?>
@@ -111,5 +114,38 @@ include '../../includes/sidebar.php';
         </div>
     </form>
 </div>
+
+<script>
+function updatePrice() {
+    const trajetSelect = document.getElementById('id_Trajet');
+    const paymentSelect = document.getElementById('id_Payment');
+    const priceDisplay = document.getElementById('price-display');
+    const priceSpan = document.getElementById('trajet-price');
+    
+    const selectedOption = trajetSelect.options[trajetSelect.selectedIndex];
+    const price = selectedOption.getAttribute('data-price');
+    
+    if (price) {
+        priceSpan.textContent = new Intl.NumberFormat().format(price);
+        priceDisplay.style.display = 'block';
+        
+        // Filter payments
+        Array.from(paymentSelect.options).forEach(option => {
+            const amount = option.getAttribute('data-amount');
+            if (amount === "0" || amount === price) {
+                option.style.display = 'block';
+            } else {
+                option.style.display = 'none';
+            }
+        });
+        
+        // Note: In edit mode, we don't necessarily want to force reset if the current payment matches
+        // but it's safer to keep the existing value if it's still valid
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', updatePrice);
+</script>
 
 <?php include '../../includes/footer.php'; ?>
