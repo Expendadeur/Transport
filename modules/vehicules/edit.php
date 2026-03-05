@@ -34,8 +34,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!empty($marque) && !empty($immatriculation)) {
         try {
-            $stmt = $pdo->prepare("UPDATE automobile SET marque=?, modele=?, immatriculation=?, capacite=?, etat=?, id_agenc=?, id_Trajet=? WHERE id_aut=?");
-            $stmt->execute([$marque, $modele, $immatriculation, $capacite, $etat, $id_agenc, $id_Trajet, $id]);
+            $photo_path = $v['photo'];
+            if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
+                $upload_dir = '../../uploads/vehicules/';
+                if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
+                
+                $file_ext = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION));
+                $new_filename = uniqid('veh_') . '.' . $file_ext;
+                $target_file = $upload_dir . $new_filename;
+                
+                if (move_uploaded_file($_FILES['photo']['tmp_name'], $target_file)) {
+                    // Delete old photo if exists
+                    if ($v['photo'] && file_exists('../../' . $v['photo'])) {
+                        unlink('../../' . $v['photo']);
+                    }
+                    $photo_path = 'uploads/vehicules/' . $new_filename;
+                }
+            }
+
+            $stmt = $pdo->prepare("UPDATE automobile SET marque=?, modele=?, immatriculation=?, capacite=?, etat=?, id_agenc=?, id_Trajet=?, photo=? WHERE id_aut=?");
+            $stmt->execute([$marque, $modele, $immatriculation, $capacite, $etat, $id_agenc, $id_Trajet, $photo_path, $id]);
             
             $_SESSION['success'] = "Le véhicule a été mis à jour.";
             header("Location: index.php");
@@ -60,7 +78,24 @@ include '../../includes/sidebar.php';
 </div>
 
 <div class="card" style="max-width: 800px;">
-    <form action="" method="POST">
+    <form action="" method="POST" enctype="multipart/form-data">
+        <div class="form-group" style="margin-bottom: 2rem; text-align: center;">
+            <label class="form-label" style="display: block;">Photo du Véhicule</label>
+            <div style="width: 150px; height: 150px; border: 2px dashed #cbd5e1; border-radius: 12px; margin: 0 auto 1rem; display: flex; align-items: center; justify-content: center; background: #f8fafc; overflow: hidden; position: relative;">
+                <?php if ($v['photo']): ?>
+                    <img id="img-preview" src="../../<?php echo $v['photo']; ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                    <i class="fas fa-bus" style="font-size: 3rem; color: #94a3b8; display: none;" id="placeholder-icon"></i>
+                <?php else: ?>
+                    <i class="fas fa-bus" style="font-size: 3rem; color: #94a3b8;" id="placeholder-icon"></i>
+                    <img id="img-preview" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+                <?php endif; ?>
+            </div>
+            <input type="file" name="photo" id="photo-input" style="display: none;" accept="image/*" onchange="previewImage(this)">
+            <button type="button" class="btn" style="background: #f1f5f9; color: #0f172a;" onclick="document.getElementById('photo-input').click()">
+                <i class="fas fa-camera"></i> Modifier la photo
+            </button>
+        </div>
+
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
             <div class="form-group">
                 <label class="form-label">Marque</label>
@@ -121,5 +156,21 @@ include '../../includes/sidebar.php';
         </div>
     </form>
 </div>
+
+<script>
+function previewImage(input) {
+    const preview = document.getElementById('img-preview');
+    const icon = document.getElementById('placeholder-icon');
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            preview.src = e.target.result;
+            preview.style.display = 'block';
+            icon.style.display = 'none';
+        }
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+</script>
 
 <?php include '../../includes/footer.php'; ?>

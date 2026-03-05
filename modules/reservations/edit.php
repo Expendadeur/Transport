@@ -21,9 +21,11 @@ if (!$r) { header("Location: index.php"); exit(); }
 // Fetch Passengers, Départs, and Payments
 $passagers = $pdo->query("SELECT * FROM passager ORDER BY nomP ASC")->fetchAll();
 $departs = $pdo->query("
-    SELECT d.idDep, d.id_Trajet, d.date_depart, d.heure_depart, d.places_disponibles, t.ville_depart, t.ville_arrive, t.prix
+    SELECT d.idDep, d.id_Trajet, d.date_depart, d.heure_depart, d.places_disponibles, t.ville_depart, t.ville_arrive, t.prix,
+           a.marque, a.modele, a.photo
     FROM depart d
     JOIN trajet t ON d.id_Trajet = t.id_Traj
+    JOIN automobile a ON d.idAuto = a.id_aut
     WHERE d.statut = 'ouvert' OR d.idDep = " . (int)$r['id_Depart'] . "
     ORDER BY d.date_depart ASC, d.heure_depart ASC
 ")->fetchAll();
@@ -121,7 +123,13 @@ include '../../includes/sidebar.php';
                 
                 <optgroup label="Actuel / Disponibles">
                     <?php foreach ($available as $d): ?>
-                        <option value="<?php echo $d['idDep']; ?>" data-price="<?php echo $d['prix']; ?>" data-seats="<?php echo $d['places_disponibles']; ?>" data-trajet="<?php echo $d['id_Trajet']; ?>" <?php echo $r['id_Depart'] == $d['idDep'] ? 'selected' : ''; ?>>
+                        <option value="<?php echo $d['idDep']; ?>" 
+                                data-price="<?php echo $d['prix']; ?>" 
+                                data-seats="<?php echo $d['places_disponibles']; ?>" 
+                                data-trajet="<?php echo $d['id_Trajet']; ?>"
+                                data-photo="<?php echo $d['photo']; ?>"
+                                data-vehicle="<?php echo htmlspecialchars($d['marque'] . ' ' . $d['modele']); ?>"
+                                <?php echo $r['id_Depart'] == $d['idDep'] ? 'selected' : ''; ?>>
                             #DEP-<?php echo $d['idDep']; ?> : <?php echo htmlspecialchars($d['ville_depart'] . ' → ' . $d['ville_arrive']); ?> 
                             (<?php echo date('d/m/Y', strtotime($d['date_depart'])); ?> à <?php echo substr($d['heure_depart'], 0, 5); ?>)
                             - <?php echo $d['places_disponibles']; ?> places
@@ -132,7 +140,13 @@ include '../../includes/sidebar.php';
                         $curr = array_filter($departs, function($d) use ($r) { return $d['idDep'] == $r['id_Depart']; });
                         $d = reset($curr);
                     ?>
-                        <option value="<?php echo $d['idDep']; ?>" data-price="<?php echo $d['prix']; ?>" data-seats="0" data-trajet="<?php echo $d['id_Trajet']; ?>" selected style="color: #ef4444;">
+                        <option value="<?php echo $d['idDep']; ?>" 
+                                data-price="<?php echo $d['prix']; ?>" 
+                                data-seats="0" 
+                                data-trajet="<?php echo $d['id_Trajet']; ?>"
+                                data-photo="<?php echo $d['photo']; ?>"
+                                data-vehicle="<?php echo htmlspecialchars($d['marque'] . ' ' . $d['modele']); ?>"
+                                selected style="color: #ef4444;">
                             [COMPLET - Actuel] #DEP-<?php echo $d['idDep']; ?> : <?php echo htmlspecialchars($d['ville_depart'] . ' → ' . $d['ville_arrive']); ?>
                         </option>
                     <?php endif; ?>
@@ -141,21 +155,39 @@ include '../../includes/sidebar.php';
                 <?php if(!empty($sold_out)): ?>
                     <optgroup label="Autres Voyages COMPLET">
                         <?php foreach ($sold_out as $d): ?>
-                            <option value="<?php echo $d['idDep']; ?>" data-price="<?php echo $d['prix']; ?>" data-seats="0" data-trajet="<?php echo $d['id_Trajet']; ?>" style="color: #ef4444;">
+                            <option value="<?php echo $d['idDep']; ?>" 
+                                    data-price="<?php echo $d['prix']; ?>" 
+                                    data-seats="0" 
+                                    data-trajet="<?php echo $d['id_Trajet']; ?>"
+                                    data-photo="<?php echo $d['photo']; ?>"
+                                    data-vehicle="<?php echo htmlspecialchars($d['marque'] . ' ' . $d['modele']); ?>"
+                                    style="color: #ef4444;">
                                 [COMPLET] #DEP-<?php echo $d['idDep']; ?> : <?php echo htmlspecialchars($d['ville_depart'] . ' → ' . $d['ville_arrive']); ?>
                             </option>
                         <?php endforeach; ?>
                     </optgroup>
                 <?php endif; ?>
             </select>
-            <div id="price-display" style="margin-top: 0.5rem; display: none;">
-                <span style="font-weight: 700; color: var(--success-color); font-size: 1.1rem;">
-                    Prix: <span id="trajet-price">0</span> FBU
-                </span>
-                <div id="full-trip-alert" style="display: none; color: #ef4444; margin-top: 0.5rem; font-weight: 700;">
-                    <i class="fas fa-ban"></i> Ce voyage est COMPLET. Proclamez une alternative :
-                    <div id="staff-next-trip" style="color: #0369a1; font-size: 0.9rem; margin-top: 0.3rem;"></div>
+            <div id="trip-preview-area" style="display: none; margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; display: flex; gap: 1rem; align-items: center;">
+                <div style="width: 80px; height: 80px; border-radius: 8px; overflow: hidden; background: white; border: 1px solid #eef2f6; flex-shrink: 0;">
+                    <img id="vehicle-photo" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+                    <div id="vehicle-placeholder" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #cbd5e1;">
+                        <i class="fas fa-bus fa-2x"></i>
+                    </div>
                 </div>
+                <div>
+                    <div style="font-size: 0.75rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Véhicule assigné</div>
+                    <div id="vehicle-name" style="font-weight: 700; color: #0f172a;">-</div>
+                    <div id="price-display" style="margin-top: 0.2rem;">
+                        <span style="font-weight: 700; color: var(--success-color); font-size: 1.1rem;">
+                            Prix: <span id="trajet-price">0</span> FBU
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div id="full-trip-alert" style="display: none; color: #ef4444; margin-top: 0.5rem; font-weight: 700;">
+                <i class="fas fa-ban"></i> Ce voyage est COMPLET. Proclamez une alternative :
+                <div id="staff-next-trip" style="color: #0369a1; font-size: 0.9rem; margin-top: 0.3rem;"></div>
             </div>
         </div>
 
@@ -195,17 +227,28 @@ include '../../includes/sidebar.php';
 function updateTripDetails() {
     const departSelect = document.getElementById('id_Depart');
     const paymentSelect = document.getElementById('id_Payment');
-    const priceDisplay = document.getElementById('price-display');
     const priceSpan = document.getElementById('trajet-price');
+    const tripPreview = document.getElementById('trip-preview-area');
     const fullAlert = document.getElementById('full-trip-alert');
     const submitBtn = document.querySelector('button[type="submit"]');
     
+    // Vehicle elements
+    const vehiclePhoto = document.getElementById('vehicle-photo');
+    const vehiclePlaceholder = document.getElementById('vehicle-placeholder');
+    const vehicleName = document.getElementById('vehicle-name');
+
     const selectedOption = departSelect.options[departSelect.selectedIndex];
-    if (!selectedOption) return;
+    if (!selectedOption || selectedOption.value === "") {
+        tripPreview.style.display = 'none';
+        fullAlert.style.display = 'none';
+        return;
+    }
     
     const price = selectedOption.getAttribute('data-price');
     const seats = parseInt(selectedOption.getAttribute('data-seats') || 0);
     const trajetId = selectedOption.getAttribute('data-trajet');
+    const photo = selectedOption.getAttribute('data-photo');
+    const vehicle = selectedOption.getAttribute('data-vehicle');
     const departId = departSelect.value;
     const initialDepart = "<?php echo $r['id_Depart']; ?>";
 
@@ -213,10 +256,21 @@ function updateTripDetails() {
     fullAlert.style.display = 'none';
     submitBtn.disabled = false;
     submitBtn.style.opacity = '1';
+    tripPreview.style.display = 'flex';
     
+    // Update Vehicle UI
+    vehicleName.textContent = vehicle || '-';
+    if (photo) {
+        vehiclePhoto.src = '../../' + photo;
+        vehiclePhoto.style.display = 'block';
+        vehiclePlaceholder.style.display = 'none';
+    } else {
+        vehiclePhoto.style.display = 'none';
+        vehiclePlaceholder.style.display = 'flex';
+    }
+
     if (price) {
         priceSpan.textContent = new Intl.NumberFormat().format(price);
-        priceDisplay.style.display = 'block';
 
         if (seats <= 0 && departId !== initialDepart && departId !== "") {
             fullAlert.style.display = 'block';

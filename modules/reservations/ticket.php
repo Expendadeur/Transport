@@ -15,7 +15,7 @@ if (!$resId) {
 // Fetch detailed reservation info
 $query = "SELECT r.*, p.nomP, p.prenomP, p.telephone, 
           t.ville_depart, t.ville_arrive, d.heure_depart, d.date_depart, d.heure_arrivee, 
-          a.marque, a.immatriculation, pay.montant as pay_montant, pay.statut as pay_statut 
+          a.marque, a.immatriculation, a.photo, pay.montant as pay_montant, pay.statut as pay_statut 
           FROM reservation r 
           LEFT JOIN passager p ON r.id_Passager = p.idP 
           LEFT JOIN trajet t ON r.id_Trajet = t.id_Traj 
@@ -31,9 +31,18 @@ if (!$ticket) {
     die("Réservation introuvable.");
 }
 
-// Prepare QRCode Data
-$qrData = "TRANSLOG|RES-#{$resId}|{$ticket['nomP']}|{$ticket['ville_depart']}-{$ticket['ville_arrive']}|{$ticket['date_depart']}";
-$qrCodeUrl = "https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl=" . urlencode($qrData) . "&choe=UTF-8";
+// Prepare Comprehensive QRCode Data
+$qrData = "TRANSLOG\n";
+$qrData .= "ID: #RES-{$resId}\n";
+$qrData .= "Passager: {$ticket['nomP']} {$ticket['prenomP']}\n";
+$qrData .= "Trajet: {$ticket['ville_depart']} -> {$ticket['ville_arrive']}\n";
+$qrData .= "Date: " . date('d/m/Y', strtotime($ticket['date_depart'])) . " à " . substr($ticket['heure_depart'], 0, 5) . "\n";
+$qrData .= "Véhicule: {$ticket['immatriculation']} ({$ticket['marque']})\n";
+$qrData .= "Places: {$ticket['nr_place']}\n";
+$qrData .= "Total: " . number_format($ticket['prix_total'], 0) . " FBU\n";
+$qrData .= "Paiement: " . ($ticket['id_Payment'] ? "PAYÉ (" . $ticket['pay_statut'] . ")" : "À PAYER");
+
+$qrCodeUrl = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" . urlencode($qrData);
 
 $status_label = $ticket['id_Payment'] ? "PAYÉ" : "À PAYER";
 $status_color = $ticket['id_Payment'] ? "#059669" : "#ef4444";
@@ -209,10 +218,21 @@ $status_color = $ticket['id_Payment'] ? "#059669" : "#ef4444";
                     <div class="label">Date</div>
                     <div class="value"><?php echo date('d M Y', strtotime($ticket['date_depart'])); ?></div>
                 </div>
-                <div>
-                    <div class="label">Véhicule</div>
-                    <div class="value"><?php echo htmlspecialchars($ticket['immatriculation']); ?></div>
-                    <div style="font-size: 0.75rem; color: #64748b;"><?php echo htmlspecialchars($ticket['marque']); ?></div>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <div style="width: 50px; height: 50px; border-radius: 8px; overflow: hidden; background: #f1f5f9; border: 1px solid #e2e8f0; flex-shrink: 0;">
+                        <?php if ($ticket['photo']): ?>
+                            <img src="../../<?php echo $ticket['photo']; ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                        <?php else: ?>
+                            <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #cbd5e1;">
+                                <i class="fas fa-bus"></i>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                    <div>
+                        <div class="label">Véhicule</div>
+                        <div class="value"><?php echo htmlspecialchars($ticket['immatriculation']); ?></div>
+                        <div style="font-size: 0.75rem; color: #64748b;"><?php echo htmlspecialchars($ticket['marque']); ?></div>
+                    </div>
                 </div>
             </div>
 
@@ -233,12 +253,44 @@ $status_color = $ticket['id_Payment'] ? "#059669" : "#ef4444";
                 Veuillez présenter ce ticket à l'embarquement. <br>
                 Merci de voyager avec <strong>TRANSLOG</strong>.
             </div>
-            <img src="<?php echo $qrCodeUrl; ?>" alt="QRCode" style="border: 4px solid white; border-radius: 8px;">
+            <!-- Improved QRCode Provider -->
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=<?php echo urlencode($qrData); ?>" alt="QRCode" style="border: 4px solid white; border-radius: 8px; width: 100px; height: 100px;">
         </div>
     </div>
 
-    <a href="javascript:window.print()" class="print-btn">
-        <i class="fas fa-print"></i> Imprimer le Ticket
-    </a>
+    <!-- PDF Generation Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    
+    <button onclick="downloadTicket()" class="print-btn" id="dl-btn">
+        <i class="fas fa-file-pdf"></i> Télécharger le PDF
+    </button>
+
+    <script>
+        function downloadTicket() {
+            const btn = document.getElementById('dl-btn');
+            btn.style.display = 'none'; // Hide button in PDF
+            
+            const element = document.querySelector('.ticket-box');
+            const opt = {
+                margin:       [0.5, 0.5, 0.5, 0.5],
+                filename:     'Ticket_TRANSLOG_RES-<?php echo $resId; ?>.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+            };
+
+            // PDF Generation
+            html2pdf().set(opt).from(element).save().then(() => {
+                btn.style.display = 'flex'; // Show button back
+                
+                // Auto-redirect to home for public users after download
+                <?php if ($is_public): ?>
+                setTimeout(() => {
+                    window.location.href = '../../index.php';
+                }, 2000); // 2 seconds delay to let the user see the "Download started" feedback
+                <?php endif; ?>
+            });
+        }
+    </script>
 </body>
 </html>

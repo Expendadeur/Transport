@@ -55,19 +55,23 @@ $user = get_user();
             </a>
         </li>
 
+        <?php if (check_role('gestionnaire')): ?>
         <li class="menu-item">
             <a href="/Gestion_agence_transport/modules/vehicules/index.php" class="menu-link <?php echo strpos($_SERVER['PHP_SELF'], '/vehicules/') !== false ? 'active' : ''; ?>">
                 <i class="fas fa-bus"></i>
                 <span>Véhicules</span>
             </a>
         </li>
+        <?php endif; ?>
 
+        <?php if (check_role('gestionnaire')): ?>
         <li class="menu-item">
             <a href="/Gestion_agence_transport/modules/chauffeurs/index.php" class="menu-link <?php echo strpos($_SERVER['PHP_SELF'], '/chauffeurs/') !== false ? 'active' : ''; ?>">
                 <i class="fas fa-id-card"></i>
                 <span>Chauffeurs</span>
             </a>
         </li>
+        <?php endif; ?>
 
         <li class="menu-item">
             <a href="/Gestion_agence_transport/modules/clients/index.php" class="menu-link <?php echo strpos($_SERVER['PHP_SELF'], '/clients/') !== false ? 'active' : ''; ?>">
@@ -91,6 +95,7 @@ $user = get_user();
         </li>
         <?php endif; ?>
 
+        <?php if (check_role('gestionnaire')): ?>
         <li class="menu-item">
             <a href="/Gestion_agence_transport/modules/paiements/index.php" class="menu-link <?php echo strpos($_SERVER['PHP_SELF'], '/paiements/') !== false ? 'active' : ''; ?>">
                 <i class="fas fa-file-invoice-dollar"></i>
@@ -111,6 +116,7 @@ $user = get_user();
                 <span>Rapports</span>
             </a>
         </li>
+        <?php endif; ?>
 
         <li class="menu-item" style="margin-top: 2rem;">
             <a href="/Gestion_agence_transport/logout.php" class="menu-link" style="color: #ef4444;">

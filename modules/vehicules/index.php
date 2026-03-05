@@ -38,6 +38,7 @@ include '../../includes/sidebar.php';
         <table>
             <thead>
                 <tr>
+                    <th style="width: 80px;">Photo</th>
                     <th>Véhicule</th>
                     <th>Immatriculation</th>
                     <th>Capacité</th>
@@ -51,6 +52,15 @@ include '../../includes/sidebar.php';
                 <?php if (count($vehicules) > 0): ?>
                     <?php foreach ($vehicules as $v): ?>
                         <tr>
+                            <td>
+                                <div style="width: 60px; height: 60px; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; background: #f8fafc; display: flex; align-items: center; justify-content: center;">
+                                    <?php if ($v['photo']): ?>
+                                        <img src="../../<?php echo $v['photo']; ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                                    <?php else: ?>
+                                        <i class="fas fa-bus" style="color: #cbd5e1; font-size: 1.5rem;"></i>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
                             <td>
                                 <div style="font-weight: 600;"><?php echo htmlspecialchars($v['marque'] . ' ' . $v['modele']); ?></div>
                                 <div style="font-size: 0.75rem; color: #64748b;">ID: #VEH-<?php echo $v['id_aut']; ?></div>

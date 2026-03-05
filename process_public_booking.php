@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($passager) {
             $id_Passager = $passager['idP'];
         } else {
-            $stmt = $pdo->prepare("INSERT INTO passager (nomP, prenomP, telephone, pays) VALUES (?, ?, ?, 'Burundi')");
+            $stmt = $pdo->prepare("INSERT INTO passager (nomP, prenomP, telephone) VALUES (?, ?, ?)");
             $stmt->execute([$nom, $prenom, $telephone]);
             $id_Passager = $pdo->lastInsertId();
         }

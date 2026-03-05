@@ -7,16 +7,28 @@ session_start();
 
 $page_title = "Réservation en Ligne";
 
-// Fetch available scheduled departures (all open ones for the next 7 days, even if full, to show info)
+// 1. Fetch ALL agencies to ensure they all get a column
+$all_agencies = $pdo->query("SELECT idAg, nom_agence FROM agence ORDER BY nom_agence ASC")->fetchAll();
+
+// 2. Fetch all departures
 $departs = $pdo->query("
-    SELECT d.idDep, d.id_Trajet, d.date_depart, d.heure_depart, d.places_disponibles, t.ville_depart, t.ville_arrive, t.prix, veh.capacite
+    SELECT d.idDep, d.id_Trajet, d.date_depart, d.heure_depart, d.places_disponibles, 
+           t.ville_depart, t.ville_arrive, t.prix, 
+           veh.capacite, veh.marque, veh.modele, veh.photo,
+           ag.idAg, ag.nom_agence
     FROM depart d
     JOIN trajet t ON d.id_Trajet = t.id_Traj
     JOIN automobile veh ON d.idAuto = veh.id_aut
+    JOIN agence ag ON veh.id_agenc = ag.idAg
     WHERE d.statut = 'ouvert' AND d.date_depart >= CURDATE()
     ORDER BY d.date_depart ASC, d.heure_depart ASC
-    LIMIT 20
 ")->fetchAll();
+
+// 3. Group departures by agency ID
+$grouped_departs = [];
+foreach ($departs as $d) {
+    $grouped_departs[$d['idAg']][] = $d;
+}
 
 $pre_selected_trip = isset($_GET['trip']) ? (int)$_GET['trip'] : 0;
 ?>
@@ -34,259 +46,305 @@ $pre_selected_trip = isset($_GET['trip']) ? (int)$_GET['trip'] : 0;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            font-family: 'Inter', sans-serif;
         }
         .header-simple {
-            background: var(--dark-color);
+            background: #0f172a;
             padding: 1rem 2rem;
             color: white;
             text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         .booking-container {
-            max-width: 700px;
-            margin: 3rem auto;
+            max-width: 1300px;
+            margin: 2rem auto;
             width: 95%;
         }
-        .booking-card {
-            background: white;
-            border-radius: 24px;
-            padding: 2.5rem;
-            box-shadow: 0 15px 40px rgba(0,0,0,0.08);
-        }
-        .trip-grid-selection {
+        .dashboard-layout {
             display: grid;
-            grid-template-columns: 1fr;
+            grid-template-columns: 1fr 380px;
+            gap: 2rem;
+            align-items: start;
+        }
+        .agencies-scroll-container {
+            display: flex;
+            gap: 1.5rem;
+            overflow-x: auto;
+            padding-bottom: 1rem;
+            scrollbar-width: thin;
+        }
+        .agency-column {
+            min-width: 450px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        @media (max-width: 1024px) {
+            .dashboard-layout { grid-template-columns: 1fr; }
+            .agencies-scroll-container { flex-direction: column; overflow-x: visible; }
+            .agency-column { min-width: 100%; }
+        }
+        .white-card {
+            background: white;
+            border-radius: 20px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            height: 100%;
+        }
+        .trip-grid {
+            display: flex;
+            flex-direction: column;
             gap: 1rem;
-            margin-top: 1.5rem;
         }
         .trip-card {
-            border: 2px solid #eef2f6;
+            border: 2px solid #f1f5f9;
             border-radius: 16px;
             padding: 1.25rem;
             cursor: pointer;
             transition: all 0.3s ease;
-            position: relative;
             background: #fff;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
         }
         .trip-card:hover {
-            border-color: var(--primary-color);
+            border-color: #3b82f6;
             background: #f0f9ff;
-            transform: translateY(-2px);
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(59, 130, 246, 0.1);
         }
         .trip-card.active {
-            border-color: var(--primary-color);
+            border-color: #3b82f6;
             background: #eff6ff;
-            box-shadow: 0 4px 15px rgba(3, 105, 161, 0.15);
+            box-shadow: 0 5px 15px rgba(59, 130, 246, 0.2);
         }
         .trip-card.disabled {
-            opacity: 0.7;
+            opacity: 0.6;
             cursor: not-allowed;
-            border-color: #f1f5f9;
+            grayscale: 1;
+        }
+        .trip-vehicle-thumb {
+            width: 70px;
+            height: 70px;
+            border-radius: 10px;
+            overflow: hidden;
             background: #f8fafc;
+            flex-shrink: 0;
+            border: 1px solid #eef2f6;
         }
-        .trip-card.disabled:hover {
-            transform: none;
-            border-color: #f1f5f9;
-        }
-        .trip-info-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.8rem;
-        }
-        .trip-route {
-            font-weight: 800;
-            color: #1e293b;
-            font-size: 1.1rem;
-        }
-        .trip-price-badge {
-            background: #f0fdf4;
-            color: #16a34a;
-            padding: 0.4rem 0.8rem;
-            border-radius: 40px;
-            font-weight: 700;
-            font-size: 0.85rem;
-        }
-        .trip-details-row {
-            display: flex;
-            gap: 1.5rem;
-            color: #64748b;
-            font-size: 0.9rem;
-        }
-        .trip-status-indicator {
-            margin-top: 0.8rem;
-            font-size: 0.8rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .status-available { color: #16a34a; }
-        .status-warning { color: #f59e0b; }
-        .status-full { color: #ef4444; }
+        .trip-vehicle-thumb img { width: 100%; height: 100%; object-fit: cover; }
         
-        .sold-out-section {
-            margin-top: 2.5rem;
-            padding-top: 1.5rem;
-            border-top: 1px dashed #e2e8f0;
-        }
-        .sold-out-title {
-            font-size: 0.9rem;
-            color: #94a3b8;
+        .trip-main-info { flex-grow: 1; }
+        .trip-route { font-weight: 800; color: #1e293b; font-size: 1rem; margin-bottom: 0.3rem; }
+        .trip-meta { font-size: 0.8rem; color: #64748b; display: flex; flex-wrap: wrap; gap: 0.8rem; }
+        .price-tag { font-weight: 800; color: #16a34a; font-size: 0.9rem; margin-top: 0.5rem; }
+        
+        .status-badge {
+            font-size: 0.7rem;
             font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 1rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            margin-top: 0.5rem;
+            display: inline-block;
         }
-        #btn-next-step:disabled {
-            background: #cbd5e1;
-            cursor: not-allowed;
+        .badge-avail { background: #dcfce7; color: #166534; }
+        .badge-warn { background: #fef3c7; color: #92400e; }
+        .badge-full { background: #fee2e2; color: #991b1b; }
+
+        .booking-form-col {
+            position: sticky;
+            top: 2rem;
         }
+        .form-group { margin-bottom: 1.25rem; }
+        .form-label { display: block; font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 0.5rem; }
+        .form-control { width: 100%; padding: 0.75rem 1rem; border: 2px solid #e2e8f0; border-radius: 10px; font-family: inherit; font-size: 0.95rem; }
+        .form-control:focus { outline: none; border-color: #3b82f6; background: #fff; }
+        
+        .summary-box {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid #e2e8f0;
+            display: none;
+        }
+        .summary-item { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.9rem; }
     </style>
 </head>
 <body>
     <div class="header-simple">
-        <a href="index.php" style="color: white; text-decoration: none; font-weight: 800; letter-spacing: 2px;">TRANSLOG</a>
+        <a href="index.php" style="color: white; text-decoration: none; font-weight: 800; letter-spacing: 2px; font-size: 1.5rem;">TRANSLOG</a>
     </div>
 
     <div class="booking-container">
-        <div class="booking-card">
-            <h2 style="text-align: center; margin-bottom: 2rem;">Réserver mon Voyage</h2>
+        <form id="public-booking-form" action="process_public_booking.php" method="POST">
+            <input type="hidden" name="id_Depart" id="selected_Depart" required>
             
-            <form id="public-booking-form" action="process_public_booking.php" method="POST">
-                <!-- Section 1: Voyage -->
-                <div class="form-section active" id="section-1">
-                    <h4 style="margin-bottom: 0.5rem; color: var(--secondary-color);">1. Où voulez-vous aller ?</h4>
-                    <p style="color: #64748b; font-size: 0.9rem; margin-bottom: 1.5rem;">Sélectionnez votre voyage parmi les départs disponibles.</p>
-                    
-                    <input type="hidden" name="id_Depart" id="selected_Depart" required>
+            <div class="dashboard-layout">
+                <div class="agencies-scroll-container">
+                    <?php foreach ($all_agencies as $ag): 
+                        $agency_id = $ag['idAg'];
+                        $agency_trips = isset($grouped_departs[$agency_id]) ? $grouped_departs[$agency_id] : [];
+                        $available = array_filter($agency_trips, function($t) { return $t['places_disponibles'] > 0; });
+                        $sold_out = array_filter($agency_trips, function($t) { return $t['places_disponibles'] <= 0; });
+                    ?>
+                        <div class="agency-column">
+                            <div class="white-card">
+                                <h3 style="margin-bottom: 1.2rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #f1f5f9; padding-bottom: 0.8rem;">
+                                    <span><i class="fas fa-building" style="color: #3b82f6; margin-right: 10px;"></i> <?php echo htmlspecialchars($ag['nom_agence']); ?></span>
+                                    <span style="font-size: 0.7rem; color: #94a3b8; font-weight: 400;">Bureaux Ouverts</span>
+                                </h3>
 
-                    <div class="trip-grid-selection">
-                        <?php 
-                        $available_trips = array_filter($departs, function($d) { return $d['places_disponibles'] > 0; });
-                        $sold_out_trips = array_filter($departs, function($d) { return $d['places_disponibles'] <= 0; });
+                                <?php if (empty($available) && empty($sold_out)): ?>
+                                    <div style="text-align: center; padding: 3rem 1rem; color: #94a3b8;">
+                                        <i class="fas fa-calendar-times fa-3x" style="margin-bottom: 1rem; opacity: 0.3;"></i>
+                                        <p style="font-weight: 600;">Aucun départ prévu</p>
+                                        <p style="font-size: 0.8rem;">Revenez plus tard pour cette agence.</p>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="trip-grid">
+                                        <?php if (!empty($available)): ?>
+                                            <div style="font-size: 0.8rem; font-weight: 700; color: #64748b; margin-bottom: 0.5rem; text-transform: uppercase;">Départs Disponibles</div>
+                                            <?php foreach ($available as $d): 
+                                                $is_warn = $d['places_disponibles'] < 5;
+                                            ?>
+                                                <div class="trip-card" onclick="selectTrip(this, <?php echo htmlspecialchars(json_encode($d)); ?>)">
+                                                    <div class="trip-vehicle-thumb">
+                                                        <?php if ($d['photo']): ?>
+                                                            <img src="<?php echo $d['photo']; ?>" alt="Bus">
+                                                        <?php else: ?>
+                                                            <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #cbd5e1;">
+                                                                <i class="fas fa-bus fa-2x"></i>
+                                                            </div>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                    <div class="trip-main-info">
+                                                        <div class="trip-route"><?php echo htmlspecialchars($d['ville_depart'] . ' → ' . $d['ville_arrive']); ?></div>
+                                                        <div class="trip-meta" style="gap: 0.5rem;">
+                                                            <span><?php echo date('d M', strtotime($d['date_depart'])); ?></span>
+                                                            <span style="font-weight: bold; color: #0f172a;"><?php echo substr($d['heure_depart'], 0, 5); ?></span>
+                                                            <span style="color: #16a34a; font-weight: bold;"><?php echo number_format($d['prix'], 0); ?> F</span>
+                                                        </div>
+                                                        <div class="status-badge <?php echo $is_warn ? 'badge-warn' : 'badge-avail'; ?>" style="margin-top: 0.3rem;">
+                                                            <?php echo $d['places_disponibles']; ?> places
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
 
-                        foreach ($available_trips as $d): 
-                            $low_seats = $d['places_disponibles'] < 5;
-                        ?>
-                            <div class="trip-card" onclick="selectTrip(this, '<?php echo $d['idDep']; ?>', '<?php echo $d['prix']; ?>')">
-                                <div class="trip-info-header">
-                                    <div class="trip-route"><?php echo htmlspecialchars($d['ville_depart'] . ' → ' . $d['ville_arrive']); ?></div>
-                                    <div class="trip-price-badge"><?php echo number_format($d['prix'], 0); ?> FBU</div>
-                                </div>
-                                <div class="trip-details-row">
-                                    <span><i class="far fa-calendar-alt"></i> <?php echo date('d M Y', strtotime($d['date_depart'])); ?></span>
-                                    <span><i class="far fa-clock"></i> <?php echo substr($d['heure_depart'], 0, 5); ?></span>
-                                </div>
-                                <div class="trip-status-indicator <?php echo $low_seats ? 'status-warning' : 'status-available'; ?>">
-                                    <i class="fas fa-circle" style="font-size: 0.5rem;"></i>
-                                    <?php echo $d['places_disponibles']; ?> places disponibles 
-                                    <?php if($low_seats): ?><span style="font-weight: 800;">- DERNIÈRES PLACES !</span><?php endif; ?>
-                                </div>
+                                        <?php if (!empty($sold_out)): ?>
+                                            <div style="font-size: 0.8rem; font-weight: 700; color: #94a3b8; margin-top: 1.5rem; margin-bottom: 0.5rem; text-transform: uppercase;">Plus de places</div>
+                                            <?php foreach ($sold_out as $d): ?>
+                                                <div class="trip-card disabled" style="padding: 0.8rem;">
+                                                    <div class="trip-main-info">
+                                                        <div class="trip-route" style="color: #94a3b8; font-size: 0.9rem;"><?php echo htmlspecialchars($d['ville_depart'] . ' → ' . $d['ville_arrive']); ?></div>
+                                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.3rem;">
+                                                            <span style="font-size: 0.75rem; color: #94a3b8;"><?php echo substr($d['heure_depart'], 0, 5); ?></span>
+                                                            <div class="status-badge badge-full">COMPLET</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endif; ?>
                             </div>
-                        <?php endforeach; ?>
-                    </div>
-
-                    <?php if (!empty($sold_out_trips)): ?>
-                        <div class="sold-out-section">
-                            <div class="sold-out-title">Voyages Complets (Disponibilités futures)</div>
-                            <?php foreach ($sold_out_trips as $d): ?>
-                                <div class="trip-card disabled" style="margin-bottom: 0.5rem;">
-                                    <div class="trip-info-header">
-                                        <div class="trip-route" style="color: #94a3b8;"><?php echo htmlspecialchars($d['ville_depart'] . ' → ' . $d['ville_arrive']); ?></div>
-                                        <div class="status-full" style="font-weight: 800; font-size: 0.75rem;">COMPLET</div>
-                                    </div>
-                                    <div class="trip-details-row" style="color: #cbd5e1;">
-                                        <span><?php echo date('d/m/Y', strtotime($d['date_depart'])); ?> à <?php echo substr($d['heure_depart'], 0, 5); ?></span>
-                                    </div>
-                                    <div id="next-avail-<?php echo $d['idDep']; ?>" class="status-available" style="margin-top: 0.5rem; font-size: 0.8rem; font-weight: 700;">
-                                        <i class="fas fa-spinner fa-spin"></i> Recherche du prochain...
-                                    </div>
-                                    <script>
-                                        // Auto-fetch next avail for display only
-                                        fetch('api/next_trip.php?trajet=<?php echo $d['id_Trajet']; ?>&exclude=<?php echo $d['idDep']; ?>')
-                                            .then(r => r.json())
-                                            .then(data => {
-                                                const el = document.getElementById('next-avail-<?php echo $d['idDep']; ?>');
-                                                if(data.success) {
-                                                    el.innerHTML = '<i class="fas fa-arrow-right"></i> Prochain disponible : ' + data.trip.date + ' à ' + data.trip.heure;
-                                                } else {
-                                                    el.innerHTML = '<i class="fas fa-info-circle"></i> Pas d\'autre départ planifié.';
-                                                }
-                                            });
-                                    </script>
-                                </div>
-                            <?php endforeach; ?>
                         </div>
-                    <?php endif; ?>
+                    <?php endforeach; ?>
+                </div>
 
-                    <div style="margin-top: 2rem; text-align: right;">
-                        <button type="button" id="btn-next-step" class="btn btn-primary" onclick="nextSection(2)" disabled>
-                            Détails Passager <i class="fas fa-chevron-right"></i>
-                        </button>
+                <!-- PASSENGER INFO (COL 3) -->
+                <div class="booking-form-col">
+                    <div class="white-card">
+                        <h3 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.8rem;">
+                            <i class="fas fa-user-check" style="color: #3b82f6;"></i> Mes Informations
+                        </h3>
+
+                        <div id="booking-summary" class="summary-box">
+                            <div style="font-weight: 800; color: #1e293b; margin-bottom: 0.8rem; font-size: 0.95rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5rem;">
+                                Résumé du voyage
+                            </div>
+                            <div class="summary-item">
+                                <span style="color: #64748b;">Trajet:</span>
+                                <span id="sum-route" style="font-weight: 700;">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span style="color: #64748b;">Départ:</span>
+                                <span id="sum-time" style="font-weight: 700;">-</span>
+                            </div>
+                            <div class="summary-item">
+                                <span style="color: #64748b;">Prix Unit.:</span>
+                                <span id="sum-price" style="font-weight: 700; color: #16a34a;">-</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Nom Complet <span style="color: #ef4444;">*</span></label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                                <input type="text" name="nom" class="form-control" placeholder="Nom" required>
+                                <input type="text" name="prenom" class="form-control" placeholder="Prénom" required>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Téléphone (WhatsApp) <span style="color: #ef4444;">*</span></label>
+                            <input type="text" name="telephone" class="form-control" placeholder="68 123 456" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Nombre de places</label>
+                            <input type="number" name="nr_place" id="nr_place" class="form-control" value="1" min="1" max="5" onchange="updateTotal()">
+                        </div>
+
+                        <div style="margin-top: 2rem;">
+                            <button type="submit" id="btn-submit" class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1rem; background: #0f172a;" disabled>
+                                CONFIRMER LA RÉSERVATION
+                            </button>
+                            <p style="text-align: center; font-size: 0.75rem; color: #94a3b8; margin-top: 1rem;">
+                                <i class="fas fa-lock"></i> Paiement sécurisé à l'embarquement
+                            </p>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Section 2: Infos Passager -->
-                <div class="form-section" id="section-2">
-                    <h4 style="margin-bottom: 1.5rem; color: var(--secondary-color);">2. Mes Informations</h4>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <div class="form-group">
-                            <label class="form-label">Nom <span style="color: red;">*</span></label>
-                            <input type="text" name="nom" class="form-control" placeholder="NDAYISHIMIYE" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Prénom <span style="color: red;">*</span></label>
-                            <input type="text" name="prenom" class="form-control" placeholder="Jean" required>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Téléphone (WhatsApp) <span style="color: red;">*</span></label>
-                        <input type="text" name="telephone" class="form-control" placeholder="68 123 456" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Nombre de places <span style="font-size: 0.8rem; color: #64748b;">(Max 5)</span></label>
-                        <input type="number" name="nr_place" class="form-control" value="1" min="1" max="5">
-                    </div>
-
-                    <div style="margin-top: 2rem; display: flex; justify-content: space-between;">
-                        <button type="button" class="btn" style="background: #e2e8f0;" onclick="nextSection(1)"><i class="fas fa-chevron-left"></i> Retour</button>
-                        <button type="submit" class="btn btn-primary" style="background: var(--success-color);">Confirmer et Imprimer mon Ticket <i class="fas fa-check"></i></button>
-                    </div>
-                </div>
-            </form>
-        </div>
+            </div>
+        </form>
     </div>
 
     <script>
-        function selectTrip(card, id, price) {
+        let selectedTripData = null;
+
+        function selectTrip(card, data) {
+            selectedTripData = data;
+            
             // UI Update
             document.querySelectorAll('.trip-card').forEach(c => c.classList.remove('active'));
             card.classList.add('active');
             
             // Set Hidden Input
-            document.getElementById('selected_Depart').value = id;
+            document.getElementById('selected_Depart').value = data.idDep;
+            
+            // Update Summary
+            document.getElementById('booking-summary').style.display = 'block';
+            document.getElementById('sum-route').innerText = data.ville_depart + ' → ' + data.ville_arrive;
+            document.getElementById('sum-time').innerText = data.date_depart + ' à ' + data.heure_depart.substring(0,5);
+            document.getElementById('sum-price').innerText = new Intl.NumberFormat().format(data.prix) + ' FBU';
             
             // Enable Button
-            document.getElementById('btn-next-step').disabled = false;
+            document.getElementById('btn-submit').disabled = false;
         }
 
-        function nextSection(num) {
-            document.querySelectorAll('.form-section').forEach(s => s.classList.remove('active'));
-            document.getElementById('section-' + num).classList.add('active');
+        function updateTotal() {
+            // Potential for live total calculation if needed
         }
 
-        // Initialize auto-selection if trip ID is in URL
         window.onload = function() {
             const preTrip = "<?php echo $pre_selected_trip; ?>";
             if(preTrip > 0) {
-                const card = document.querySelector(`.trip-card[onclick*="'${preTrip}'"]`);
-                if(card) {
-                    card.click();
-                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
+                const card = document.querySelector(`.trip-card[onclick*="idDep\\":${preTrip}"]`);
+                if(card) card.click();
             }
         };
     </script>
